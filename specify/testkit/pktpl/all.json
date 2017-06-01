@@ -1,0 +1,10 @@
+1{"request_type":2,"account":"test$0","nickname":"test$0","password":"test$0","data":{"level":$1,"rank":$1,"win":$1,"lose":$1,"draw":$1},"birthday":{"year":$2,"month":$2,"day":$2},"state":1,"sex":true,"room":$0}
+2{"request_type":3,"account":"test$0","password":"test$0"}
+3{"request_type":5}
+4{"request_type":6}
+5{"request_type":15,"account":"test$0","message":"Hello world"}
+6{"request_type":7,"account":"test$0","nickname":"test$0","password":"test$0","data":{"level":$1,"rank":$1,"win":$1,"lose":$1,"draw":$1},"birthday":{"year":$2,"month":$2,"day":$2},"state":2,"sex":true,"room":$0}
+7{"request_type":8,"id":$0,"name":"room$0","player1":"test$0","player2":"","state":1,"config":{"komi":10,"mainTime":10,"period":10,"periodTimes":10},"action":0}
+8{"request_type":14,"account":"test$0","room_id":$0,"message":"Hello world"}
+9{"request_type":12,"room_id":$0,"info":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+10{"request_type":13,"room_id":$0,"point1":$3,"point2":$4,"result":0}
