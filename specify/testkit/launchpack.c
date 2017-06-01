@@ -17,6 +17,7 @@
 
 struct report{
     int passed;
+    int total_requests;
     double time_elapsed;
     double bench_time;
     unsigned long long bytes;
@@ -33,7 +34,7 @@ int receive_from(int sfd);
 void mkrpt();
 void thread_err(pthread_t id,const char* msg);
 
-volatile struct report rpt={0,0.0,0.0,0};
+volatile struct report rpt={0,0,0.0,0.0,0};
 char* ip=NULL;
 char* port=NULL;
 int ntask=0;
@@ -55,9 +56,16 @@ int main(int argc,char** argv){
     for(int i=0;i<ntask;i++){
         pthread_create(&threads[i],NULL,cli,NULL);
     }
+    struct report** cli_rpt;
     for(int i=0;i<ntask;i++){
-        pthread_join(threads[i],NULL);
+        pthread_join(threads[i],(void**)cli_rpt);
+        rpt.passed+=(*cli_rpt)->passed;
+        rpt.time_elapsed+=(*cli_rpt)->time_elapsed;
+        rpt.bytes+=(*cli_rpt)->bytes;
+        free(*cli_rpt);
     }
+    rpt.bench_time=rpt.time_elapsed/ntask;
+    rpt.total_requests=ntask*ntimes;
     mkrpt();
     return 0;
 }
@@ -78,6 +86,10 @@ void show_waiting_info(){
 }
 
 void* cli(void* arg){
+    struct report* pocli=malloc(sizeof(struct report));
+    pocli->passed=0;
+    pocli->bytes=0;
+    pocli->time_elapsed=0.0;
     for(int i=0;i<ntimes;i++){
         char buf[64*1024]={'\0'};
         redirio_atfork("trans",buf,-1,exec_trans);
@@ -94,18 +106,19 @@ void* cli(void* arg){
             continue;
         }
         n=receive_from(sfd);
-        if(close(sfd)==-1){
-            thread_err(pthread_self(),"while close(sfd)");
-            continue;
-        }
+//        if(close(sfd)==-1){
+//            thread_err(pthread_self(),"while close(sfd)");
+//            continue;
+//        }
         time(&end);
         if(n>0||enable_recvall==0){
-            rpt.passed++;
-            rpt.bytes+=n;
-            rpt.time_elapsed+=difftime(end,start);
+            pocli->passed++;
+            pocli->bytes+=n;
+            pocli->time_elapsed+=difftime(end,start);
         }
+        sleep(1);
     }
-    pthread_exit(NULL);
+    pthread_exit(pocli);
 }
 
 int dial_tcp(){
@@ -201,7 +214,7 @@ int exec_netpack(char* buf,int fd,int pfd0[2],int pfd1[2]){
 }
 
 int receive_from(int sfd){
-    struct timeval timeout={60,0};
+    struct timeval timeout={30,0};
     setsockopt(sfd,SOL_SOCKET,SO_RCVTIMEO,(char*)&timeout,sizeof(struct timeval));
     char res[1024];
     int size_recv=0,total_size=0;
@@ -236,18 +249,22 @@ int receive_from(int sfd){
 }
 
 void mkrpt(){
-    int total_requests=ntimes*ntask;
-    rpt.bench_time=rpt.time_elapsed/ntask;
     printf("Done.\n");
     printf("Total Time cost:%.2fs\n",rpt.bench_time);
     printf("Total Transferred:%dbytes\n",rpt.bytes);
     printf("\n");
-    printf("%.2f requests/sec\n",total_requests/rpt.bench_time);
-    printf("%.2f bytes/sec\n",rpt.bytes/rpt.bench_time);
-    printf("%.2f ms/request\n",rpt.bench_time*1000/total_requests/ntask);
-    printf("%.2f ms/request(across all concurrent requests)\n",rpt.bench_time*1000/total_requests);
-    printf("%d succeed\n",rpt.passed);
-    printf("%d failed\n",total_requests-rpt.passed);
+    printf("%.2f requests/sec\n"
+           "%.2f bytes/sec\n"
+           "%.2f ms/request\n"
+           "%.2f ms/request(across all concurrent requests)\n"
+           "%d succeed\n"
+           "%d failed\n",
+           rpt.total_requests/rpt.bench_time,
+           rpt.bytes/rpt.bench_time,
+           rpt.bench_time*1000/rpt.total_requests/ntask,
+           rpt.bench_time*1000/rpt.total_requests,
+           rpt.passed,
+           rpt.total_requests-rpt.passed);
     printf("\n");
 }
 
