@@ -34,7 +34,7 @@ int receive_from(int sfd);
 void mkrpt();
 void thread_err(pthread_t id,const char* msg);
 
-volatile struct report rpt={0,0,0.0,0.0,0};
+struct report rpt={0,0,0.0,0.0,0};
 char* ip=NULL;
 char* port=NULL;
 int ntask=0;
@@ -213,9 +213,23 @@ int exec_netpack(char* buf,int fd,int pfd0[2],int pfd1[2]){
     return pbuf-buf;
 }
 
+int setnonblock(int sfd){
+    int flags=fcntl(sfd,F_GETFD);
+    if(flags==-1){
+        return -1;
+    }
+    flags|=O_NONBLOCK;
+    if(fcntl(sfd,F_SETFD,flags)==-1){
+        return -1;
+    }
+    return 0;
+}
+
 int receive_from(int sfd){
-    struct timeval timeout={30,0};
-    setsockopt(sfd,SOL_SOCKET,SO_RCVTIMEO,(char*)&timeout,sizeof(struct timeval));
+    if(setnonblock(sfd)==-1){
+        thread_err(pthread_self(),"while setnonblock");
+        return 0;
+    }
     char res[1024];
     int size_recv=0,total_size=0;
     while(1){
@@ -231,7 +245,7 @@ int receive_from(int sfd){
 //                printf("Recv RST segement.\n");
                 break;
             }else{
-                printf("Unknow error!\n");
+//                printf("Unknow error!\n");
                 break;
             }
         }else if(size_recv==0){
@@ -242,6 +256,10 @@ int receive_from(int sfd){
                 return size_recv;
             }
             total_size+=size_recv;
+//            printf("recv %d\n",size_recv);
+            if(total_size<sizeof(res)){
+                break;
+            }
         }
     }
 //    printf("Reply received,total_size=%d bytes.\n",total_size);
