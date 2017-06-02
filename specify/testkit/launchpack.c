@@ -30,6 +30,7 @@ int dial_tcp();
 int redirio_atfork(const char* subroutin,char* buf,int fd,int(*)(char*,int,int pfd0[2],int pfd1[2]));
 int exec_netpack(char* buf,int fd,int pfd0[2],int pfd1[2]);
 int exec_trans(char* buf,int fd,int pfd0[2],int pfd1[2]);
+int setnonblock(int sfd);
 int receive_from(int sfd);
 void mkrpt();
 void thread_err(pthread_t id,const char* msg);
@@ -256,8 +257,7 @@ int receive_from(int sfd){
                 return size_recv;
             }
             total_size+=size_recv;
-//            printf("recv %d\n",size_recv);
-            if(total_size<sizeof(res)){
+            if(size_recv<sizeof(res)){
                 break;
             }
         }
