@@ -48,7 +48,6 @@ int main(){
                     );
         }
     }
-    close(out);
     return 0;
 }
 

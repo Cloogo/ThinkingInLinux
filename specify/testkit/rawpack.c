@@ -26,8 +26,7 @@ int main(){
     while(1){
         int seqid; 
         int len;
-        uchar* json;
-        ssize_t total;
+        uchar* json;        ssize_t total;
         int n=scanf("%u%m[^\n]%n", &seqid, &json,&len);
         if(n==2){
             len-=lenofnum(seqid);
