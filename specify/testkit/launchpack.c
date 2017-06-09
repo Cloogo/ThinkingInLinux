@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <time.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -13,13 +13,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/wait.h>
-#include <sys/prctl.h>
+#include <sys/time.h>
 
 struct report{
     int passed;
     int total_requests;
-    double time_elapsed;
-    double bench_time;
+    clock_t time_elapsed;
+    double bench_time;//usec
     unsigned long long bytes;
 };
 
@@ -34,15 +34,18 @@ int setnonblock(int sfd);
 int receive_from(int sfd);
 void mkrpt();
 void thread_err(pthread_t id,const char* msg);
+void fatal(const char* msg);
 
-struct report rpt={0,0,0.0,0.0,0};
+struct report rpt={0,0,0,0.0,0};
 char* ip=NULL;
 char* port=NULL;
 int ntask=0;
 int ntimes=0;
 int enable_recvall=0;
+int stacksize=0;
 
 int main(int argc,char** argv){
+    time_t start,end;
     if(argc<6){
         usage(argv[0]);
     }
@@ -52,34 +55,53 @@ int main(int argc,char** argv){
     ntask=atoi(argv[3]);
     ntimes=atoi(argv[4]);
     enable_recvall=atoi(argv[5]);
+    if(argv[6]!=NULL){
+        stacksize=atoi(argv[6]);
+    }
     show_waiting_info();
+    pthread_attr_t attr;
+    int ret=pthread_attr_init(&attr);
+    if(ret!=0){
+        fatal("while pthread_attr_init");
+    }
+    if(stacksize!=0){
+        ret=pthread_attr_setstacksize(&attr,stacksize);
+        if(ret!=0){
+            fatal("while pthread_attr_setstacksize");
+        }
+    }
     pthread_t threads[ntask];
     for(int i=0;i<ntask;i++){
-        pthread_create(&threads[i],NULL,cli,NULL);
+        pthread_create(&threads[i],&attr,cli,NULL);
+    }
+    ret=pthread_attr_destroy(&attr);
+    if(ret!=0){
+        fprintf(stderr,"pthread_attr_destroy err:\n");
     }
     struct report** cli_rpt;
     for(int i=0;i<ntask;i++){
         pthread_join(threads[i],(void**)cli_rpt);
         rpt.passed+=(*cli_rpt)->passed;
         rpt.time_elapsed+=(*cli_rpt)->time_elapsed;
+//        printf("%lfus\n",(double)(*cli_rpt)->time_elapsed*1e6/CLOCKS_PER_SEC);
         rpt.bytes+=(*cli_rpt)->bytes;
         free(*cli_rpt);
     }
-    rpt.bench_time=rpt.time_elapsed/ntask;
+    rpt.bench_time=(double)rpt.time_elapsed*1e6/CLOCKS_PER_SEC;
     rpt.total_requests=ntask*ntimes;
     mkrpt();
     return 0;
 }
 
 void usage(const char* progname){
-    fprintf(stderr,"usage:%s ip port ntask ntimes enable_recvall\n",progname);
+    fprintf(stderr,"usage:%s ip port ntask ntimes enable_recvall (stacksize)\n",progname);
     exit(1);
 }
 
 void show_waiting_info(){
     printf(".........................\n");
-    printf("Name:\tlaunchpack\n");
-    printf("Version:1.0\n");
+    printf("[[\tName:\tlaunchpack\t]]\n");
+    printf("[[\tVersion:1.0\t]]\n");
     printf(".........................\n");
     printf("\n");
     printf("Running %d clients,totally sending %d packets to %s:%s...\n",ntask,ntask*ntimes,ip,port);
@@ -90,32 +112,32 @@ void* cli(void* arg){
     struct report* pocli=malloc(sizeof(struct report));
     pocli->passed=0;
     pocli->bytes=0;
-    pocli->time_elapsed=0.0;
+    pocli->time_elapsed=0;
     for(int i=0;i<ntimes;i++){
         char buf[64*1024]={'\0'};
         redirio_atfork("trans",buf,-1,exec_trans);
-        int n=redirio_atfork("netpack",buf,-1,exec_netpack);
-        time_t start,end;
-        time(&start);
+        int nwrite=redirio_atfork("netpack",buf,-1,exec_netpack);
+        clock_t start,end;
+        start=clock();
         int sfd=dial_tcp();
         if(sfd==-1){
             thread_err(pthread_self(),"while dial_tcp");
             continue;
         }
-        if(write(sfd,buf,n)!=n){
+        if(write(sfd,buf,nwrite)!=nwrite){
             thread_err(pthread_self(),"while write(sfd)");
             continue;
         }
-        n=receive_from(sfd);
-//        if(close(sfd)==-1){
-//            thread_err(pthread_self(),"while close(sfd)");
-//            continue;
-//        }
-        time(&end);
-        if(n>0||enable_recvall==0){
+        int nread=receive_from(sfd);
+        if(close(sfd)==-1){
+            thread_err(pthread_self(),"while close(sfd)");
+            continue;
+        }
+        end=clock();
+        if(nread>0||enable_recvall==0){
             pocli->passed++;
-            pocli->bytes+=n;
-            pocli->time_elapsed+=difftime(end,start);
+            pocli->bytes+=nread;
+            pocli->time_elapsed+=end-start;
         }
         sleep(1);
     }
@@ -268,19 +290,19 @@ int receive_from(int sfd){
 
 void mkrpt(){
     printf("Done.\n");
-    printf("Total Time cost:%.2fs\n",rpt.bench_time);
+    printf("Total Time cost:%.2fs\n",rpt.bench_time/1000000);
     printf("Total Transferred:%dbytes\n",rpt.bytes);
     printf("\n");
     printf("%.2f requests/sec\n"
            "%.2f bytes/sec\n"
-           "%.2f ms/request\n"
-           "%.2f ms/request(across all concurrent requests)\n"
+           "%.2f us/request\n"
+           "%.2f us/request(across all concurrent requests)\n"
            "%d succeed\n"
            "%d failed\n",
-           rpt.total_requests/rpt.bench_time,
-           rpt.bytes/rpt.bench_time,
-           rpt.bench_time*1000/rpt.total_requests/ntask,
-           rpt.bench_time*1000/rpt.total_requests,
+           rpt.total_requests/rpt.bench_time*1e6,
+           rpt.bytes/rpt.bench_time*1e6,
+           rpt.bench_time/rpt.total_requests/ntask,
+           rpt.bench_time/rpt.total_requests,
            rpt.passed,
            rpt.total_requests-rpt.passed);
     printf("\n");
@@ -289,4 +311,9 @@ void mkrpt(){
 void thread_err(pthread_t id,const char* msg){
     fprintf(stderr,"[FATAL]!!!thread:%d %s:%s\n",id,msg,strerror(errno));
 //    pthread_exit(NULL);
+}
+
+void fatal(const char* msg){
+    fprintf(stderr,"[FATAL]!!!%s\n",msg);
+    exit(1);
 }
